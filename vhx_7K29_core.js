@@ -1,7 +1,7 @@
 const fs = require("fs/promises");
 
 const ELVEBREDD_URL = process.env.ELVEBREDD_URL || "https://elvebredd.com/adopt-me-calculator";
-const OUT_FILE = process.env.OUT_FILE || "values_elvebredd";
+const OUT_FILE = process.env.OUT_FILE || "vhx_7K29_db.json";
 const MIN_ITEMS = Number(process.env.MIN_ITEMS || 100);
 const MIN_PREVIOUS_ITEM_RATIO = Number(process.env.MIN_PREVIOUS_ITEM_RATIO || 0.90);
 const MIN_PREVIOUS_OVERLAP_RATIO = Number(process.env.MIN_PREVIOUS_OVERLAP_RATIO || 0.85);
