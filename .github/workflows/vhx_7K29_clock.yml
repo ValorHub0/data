@@ -1,4 +1,5 @@
-name: Update Elvebredd Values
+
+name: VHX 7K29 Database Refresh
 
 on:
   workflow_dispatch:
@@ -9,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: update-elvebredd-values
+  group: vhx-7k29-db-refresh
   cancel-in-progress: false
 
 jobs:
@@ -17,34 +18,34 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Validate updater syntax
-        run: node --check update_elvebredd_values.js
+        run: node --check vhx_7K29_core.js
 
       - name: Update values from Elvebredd
-        run: node update_elvebredd_values.js
+        run: node vhx_7K29_core.js
 
       - name: Validate generated database JSON
         run: |
-          node -e "const fs=require('fs'); const db=JSON.parse(fs.readFileSync('values_elvebredd','utf8')); if(!db || !db.items || typeof db.items !== 'object') throw new Error('Generated database has no valid items object'); if(Object.keys(db.items).length < 100) throw new Error('Generated database contains too few items'); console.log('Validated', Object.keys(db.items).length, 'items');"
+          node -e "const fs=require('node:fs'); const db=JSON.parse(fs.readFileSync('vhx_7K29_db.json','utf8')); if(!db || typeof db !== 'object' || !db.items || typeof db.items !== 'object' || Array.isArray(db.items)) throw new Error('Generated database has no valid items object'); if(Object.keys(db.items).length < 100) throw new Error('Generated database contains too few items'); console.log('Validated', Object.keys(db.items).length, 'items');"
 
-      - name: Commit updated values
+      - name: Commit updated database
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -- values_elvebredd
+          git add -- vhx_7K29_db.json
           git status --short
           if git diff --cached --quiet; then
-            echo "No values_elvebredd changes to commit."
+            echo "No vhx_7K29_db.json changes to commit."
           else
             git diff --cached --check
-            git commit -m "Update Elvebredd values"
+            git commit -m "Refresh VHX 7K29 database"
             git push
           fi
