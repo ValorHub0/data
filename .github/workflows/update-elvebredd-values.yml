@@ -1,0 +1,50 @@
+name: Update Elvebredd Values
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-elvebredd-values
+  cancel-in-progress: false
+
+jobs:
+  update-values:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate updater syntax
+        run: node --check update_elvebredd_values.js
+
+      - name: Update values from Elvebredd
+        run: node update_elvebredd_values.js
+
+      - name: Validate generated database JSON
+        run: |
+          node -e "const fs=require('fs'); const db=JSON.parse(fs.readFileSync('values_elvebredd','utf8')); if(!db || !db.items || typeof db.items !== 'object') throw new Error('Generated database has no valid items object'); if(Object.keys(db.items).length < 100) throw new Error('Generated database contains too few items'); console.log('Validated', Object.keys(db.items).length, 'items');"
+
+      - name: Commit updated values
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -- values_elvebredd
+          git status --short
+          if git diff --cached --quiet; then
+            echo "No values_elvebredd changes to commit."
+          else
+            git diff --cached --check
+            git commit -m "Update Elvebredd values"
+            git push
+          fi
