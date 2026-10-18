@@ -1,6 +1,6 @@
 {
   "version": 5,
-  "updatedAt": "2026-10-18T17:02:37.236Z",
+  "updatedAt": "2026-10-18T19:58:20.555Z",
   "source": "elvebredd-initialPets-auto-generated",
   "sourceUrl": "https://elvebredd.com/adopt-me-calculator",
   "itemCount": 3465,
@@ -79873,9 +79873,9 @@
       "displayName": "Kangaroo",
       "category": "pets",
       "source": "elvebredd",
-      "NP": 19,
+      "NP": 18.75,
       "F": 19.85,
-      "R": 19.5,
+      "R": 19.25,
       "FR": 21,
       "N": 40,
       "NF": 39.5,
@@ -79917,9 +79917,9 @@
           "MFR": "direct"
         },
         "originalRaw": {
-          "NP": 19,
+          "NP": 18.75,
           "F": 19.85,
-          "R": 19.5,
+          "R": 19.25,
           "FR": 21,
           "N": 40,
           "NF": 39.5,
