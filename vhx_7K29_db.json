@@ -1,9 +1,9 @@
 {
   "version": 5,
-  "updatedAt": "2026-10-23T14:35:38.837Z",
+  "updatedAt": "2026-10-23T19:43:42.836Z",
   "source": "elvebredd-initialPets-auto-generated",
   "sourceUrl": "https://elvebredd.com/adopt-me-calculator",
-  "itemCount": 3465,
+  "itemCount": 3467,
   "valueScale": "elvebredd-display-values",
   "variantKeys": {
     "NP": "No Potion / Normal / Default no-potion value when exposed",
@@ -39,7 +39,7 @@
     "gifts": 68,
     "other": 28,
     "pet wear": 956,
-    "pets": 799,
+    "pets": 801,
     "stickers": 365,
     "strollers": 103,
     "toys": 745,
@@ -31851,6 +31851,74 @@
         "status": "Ready",
         "rarity": "common",
         "image": "/images/pets/Cotton Candy Stick.png"
+      }
+    },
+    "count slothula": {
+      "displayName": "Count Slothula",
+      "category": "pets",
+      "source": "elvebredd",
+      "NP": 1.58,
+      "F": 1.83,
+      "R": 1.83,
+      "FR": 2.13,
+      "N": 7.65,
+      "NF": 8.2,
+      "NR": 8.2,
+      "NFR": 8.75,
+      "M": 33,
+      "MF": 34.9,
+      "MR": 34,
+      "MFR": 36,
+      "demand": {},
+      "aliases": [],
+      "valueMeta": {
+        "source": {
+          "NP": "elvebredd:rvalue - nopotion",
+          "F": "elvebredd:rvalue - fly",
+          "R": "elvebredd:rvalue - ride",
+          "FR": "elvebredd:rvalue - fly ride",
+          "N": "elvebredd:nvalue - nopotion",
+          "NF": "elvebredd:nvalue - fly",
+          "NR": "elvebredd:nvalue - ride",
+          "NFR": "elvebredd:nvalue - fly ride",
+          "M": "elvebredd:mvalue - nopotion",
+          "MF": "elvebredd:mvalue - fly",
+          "MR": "elvebredd:mvalue - ride",
+          "MFR": "elvebredd:mvalue"
+        },
+        "confidence": {
+          "NP": "direct",
+          "F": "direct",
+          "R": "direct",
+          "FR": "direct",
+          "N": "direct",
+          "NF": "direct",
+          "NR": "direct",
+          "NFR": "direct",
+          "M": "direct",
+          "MF": "direct",
+          "MR": "direct",
+          "MFR": "direct"
+        },
+        "originalRaw": {
+          "NP": 1.58,
+          "F": 1.83,
+          "R": 1.83,
+          "FR": 2.13,
+          "N": 7.650000000000002,
+          "NF": 8.2,
+          "NR": 8.2,
+          "NFR": 8.750000000000002,
+          "M": 33.00000000000001,
+          "MF": 34.90000000000001,
+          "MR": 34.00000000000001,
+          "MFR": 36.00000000000001
+        },
+        "notes": [],
+        "elvebreddId": 3529,
+        "status": "Ready",
+        "rarity": "ultra rare",
+        "image": "/images/pets/Count Slothula.png"
       }
     },
     "cow": {
@@ -139411,6 +139479,76 @@
         "status": "Ready",
         "rarity": "legendary",
         "image": "/images/pets/Strawberry Tortle.png"
+      }
+    },
+    "stray cat dragon": {
+      "displayName": "Stray Cat Dragon",
+      "category": "pets",
+      "source": "elvebredd",
+      "NP": 0.79,
+      "F": 1.09,
+      "R": 1.09,
+      "FR": 1.49,
+      "N": 3.8,
+      "NF": 4.73,
+      "NR": 4.73,
+      "NFR": 5.53,
+      "M": 19,
+      "MF": 20.9,
+      "MR": 20,
+      "MFR": 22,
+      "demand": {},
+      "aliases": [
+        "stray cat drag"
+      ],
+      "valueMeta": {
+        "source": {
+          "NP": "elvebredd:rvalue - nopotion",
+          "F": "elvebredd:rvalue - fly",
+          "R": "elvebredd:rvalue - ride",
+          "FR": "elvebredd:rvalue - fly ride",
+          "N": "elvebredd:nvalue - nopotion",
+          "NF": "elvebredd:nvalue - fly",
+          "NR": "elvebredd:nvalue - ride",
+          "NFR": "elvebredd:nvalue - fly ride",
+          "M": "elvebredd:mvalue - nopotion",
+          "MF": "elvebredd:mvalue - fly",
+          "MR": "elvebredd:mvalue - ride",
+          "MFR": "elvebredd:mvalue"
+        },
+        "confidence": {
+          "NP": "direct",
+          "F": "direct",
+          "R": "direct",
+          "FR": "direct",
+          "N": "direct",
+          "NF": "direct",
+          "NR": "direct",
+          "NFR": "direct",
+          "M": "direct",
+          "MF": "direct",
+          "MR": "direct",
+          "MFR": "direct"
+        },
+        "originalRaw": {
+          "NP": 0.79,
+          "F": 1.09,
+          "R": 1.09,
+          "FR": 1.49,
+          "N": 3.8,
+          "NF": 4.73,
+          "NR": 4.73,
+          "NFR": 5.53,
+          "M": 19,
+          "MF": 20.9,
+          "MR": 20,
+          "MFR": 22
+        },
+        "notes": [],
+        "elvebreddId": 3530,
+        "status": "Ready",
+        "rarity": "legendary",
+        "image": "/images/pets/Stray Cat Dragon.png"
       }
     },
     "street drifter": {
