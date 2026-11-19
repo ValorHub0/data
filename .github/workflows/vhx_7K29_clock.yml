@@ -19,15 +19,18 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Validate updater syntax
         run: node --check vhx_7K29_core.js
+
+      - name: Install dependencies
+        run: npm install puppeteer
 
       - name: Update values from Elvebredd
         run: node vhx_7K29_core.js
