@@ -480,50 +480,87 @@ function extractElvebreddItems(html, preArrays = []) {
   return map;
 }
 
-// DOM fallback: uses previous DB names as a dictionary, finds each one in
-// the rendered page text, and reads up to 12 numbers following it.
 async function extractItemsFromDOM(page, knownNames) {
-  return await page.evaluate((names) => {
-    const text = document.body.innerText;
-    const lowerText = text.toLowerCase();
-    const results = [];
-    const seen = new Set();
+  // Collect text from the main frame AND every iframe AND every open shadow root.
+  const combinedText = await page.evaluate(() => {
+    const chunks = [];
 
-    for (const name of names) {
-      const lower = name.toLowerCase();
-      if (seen.has(lower)) continue;
+    function walkRoot(root) {
+      // Text directly inside this root
+      const text = root.innerText || root.textContent || "";
+      if (text) chunks.push(text);
 
-      let best = null;
-      let searchStart = 0;
-
-      while (true) {
-        const idx = lowerText.indexOf(lower, searchStart);
-        if (idx === -1) break;
-
-        const before = idx === 0 ? " " : text[idx - 1];
-        const afterIdx = idx + name.length;
-        const after = afterIdx >= text.length ? " " : text[afterIdx];
-
-        if (!/[a-zA-Z]/.test(before) && !/[a-zA-Z]/.test(after)) {
-          const window = text.slice(afterIdx, afterIdx + 400);
-          const nums = window.match(/\d+(?:\.\d+)?/g);
-          if (nums && nums.length >= 2) {
-            if (!best || nums.length > best.nums.length) {
-              best = { name, nums: nums.slice(0, 12).map(Number) };
-            }
-          }
-        }
-        searchStart = idx + name.length;
-      }
-
-      if (best) {
-        seen.add(lower);
-        results.push(best);
+      // Recurse into child elements that have a shadow root
+      const all = root.querySelectorAll ? root.querySelectorAll("*") : [];
+      for (const el of all) {
+        if (el.shadowRoot) walkRoot(el.shadowRoot);
       }
     }
 
-    return results;
-  }, knownNames);
+    // Main document
+    walkRoot(document);
+
+    return chunks.join("\n");
+  });
+
+  console.log("Combined text length (all frames + shadow roots):", combinedText.length);
+  console.log("Combined text contains 'Shadow Dragon':",
+    combinedText.toLowerCase().includes("shadow dragon"));
+
+  // Also try every iframe separately.
+  const frames = page.frames();
+  console.log(`Page has ${frames.length} frame(s).`);
+  for (const frame of frames) {
+    try {
+      const frameText = await frame.evaluate(() => document.body?.innerText || "");
+      if (frameText.toLowerCase().includes("shadow dragon")) {
+        console.log(`Frame ${frame.url()} contains Shadow Dragon, length ${frameText.length}`);
+      }
+    } catch (_) {
+      // cross-origin frame — cannot evaluate, but continue
+    }
+  }
+
+  // Now search the combined text for each known pet name.
+  const lowerText = combinedText.toLowerCase();
+  const results = [];
+  const seen = new Set();
+
+  for (const name of knownNames) {
+    const lower = name.toLowerCase();
+    if (seen.has(lower)) continue;
+
+    let best = null;
+    let searchStart = 0;
+
+    while (true) {
+      const idx = lowerText.indexOf(lower, searchStart);
+      if (idx === -1) break;
+
+      const before = idx === 0 ? " " : combinedText[idx - 1];
+      const afterIdx = idx + name.length;
+      const after = afterIdx >= combinedText.length ? " " : combinedText[afterIdx];
+
+      // Must be a whole-word match.
+      if (!/[a-zA-Z]/.test(before) && !/[a-zA-Z]/.test(after)) {
+        const window = combinedText.slice(afterIdx, afterIdx + 500);
+        const nums = window.match(/\d+(?:\.\d+)?/g);
+        if (nums && nums.length >= 2) {
+          if (!best || nums.length > best.nums.length) {
+            best = { name, nums: nums.slice(0, 12).map(Number) };
+          }
+        }
+      }
+      searchStart = idx + name.length;
+    }
+
+    if (best) {
+      seen.add(lower);
+      results.push(best);
+    }
+  }
+
+  return results;
 }
 
 async function fetchRenderedPage(url) {
