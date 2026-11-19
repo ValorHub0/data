@@ -12,6 +12,9 @@ concurrency:
   group: vhx-7k29-db-refresh
   cancel-in-progress: false
 
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+
 jobs:
   update-values:
     runs-on: ubuntu-latest
