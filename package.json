@@ -1,0 +1,12 @@
+{
+  "name": "vhx-7k29-updater",
+  "private": true,
+  "version": "1.0.0",
+  "type": "commonjs",
+  "scripts": {
+    "update-values": "node vhx_7K29_core.js"
+  },
+  "dependencies": {
+    "puppeteer": "^23.11.1"
+  }
+}
