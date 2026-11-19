@@ -374,7 +374,6 @@ function cleanMergedNotes(item) {
   });
 }
 
-// New helper: recursively collect arrays that look like pet lists.
 function looksLikePetObject(obj) {
   if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
   const name = obj.name || obj.displayName || obj.display_name || obj.petName;
@@ -418,7 +417,6 @@ function extractElvebreddItems(html, preArrays = []) {
   const arrays = [...preArrays];
   const source = { preCaptured: preArrays.length, nextData: 0, initialPets: 0, flight: 0, generic: 0 };
 
-  // 1) __NEXT_DATA__ (Next.js server props)
   const nextMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
   if (nextMatch) {
     try {
@@ -430,12 +428,10 @@ function extractElvebreddItems(html, preArrays = []) {
     }
   }
 
-  // 2) Literal initialPets arrays
   const initial = extractInitialPetsArraysFromText(html);
   source.initialPets = initial.length;
   arrays.push(...initial);
 
-  // 3) Next.js flight payloads
   const strings = collectStringsFromNextFlight(html);
   let flightCount = 0;
   for (const str of strings) {
@@ -445,7 +441,6 @@ function extractElvebreddItems(html, preArrays = []) {
   }
   source.flight = flightCount;
 
-  // 4) Generic pet-shaped array search anywhere in the HTML
   if (arrays.length === 0) {
     const generic = findPetLikeArraysInText(html);
     source.generic = generic.length;
@@ -453,7 +448,7 @@ function extractElvebreddItems(html, preArrays = []) {
   }
 
   console.log(
-    "Extraction source counts:",
+    "JSON extraction source counts:",
     JSON.stringify(source),
     "| total arrays:", arrays.length
   );
@@ -485,8 +480,52 @@ function extractElvebreddItems(html, preArrays = []) {
   return map;
 }
 
-// Fetch the page with Puppeteer. Returns HTML plus any pet-shaped arrays
-// captured from JSON responses the page made while loading.
+// DOM fallback: uses previous DB names as a dictionary, finds each one in
+// the rendered page text, and reads up to 12 numbers following it.
+async function extractItemsFromDOM(page, knownNames) {
+  return await page.evaluate((names) => {
+    const text = document.body.innerText;
+    const lowerText = text.toLowerCase();
+    const results = [];
+    const seen = new Set();
+
+    for (const name of names) {
+      const lower = name.toLowerCase();
+      if (seen.has(lower)) continue;
+
+      let best = null;
+      let searchStart = 0;
+
+      while (true) {
+        const idx = lowerText.indexOf(lower, searchStart);
+        if (idx === -1) break;
+
+        const before = idx === 0 ? " " : text[idx - 1];
+        const afterIdx = idx + name.length;
+        const after = afterIdx >= text.length ? " " : text[afterIdx];
+
+        if (!/[a-zA-Z]/.test(before) && !/[a-zA-Z]/.test(after)) {
+          const window = text.slice(afterIdx, afterIdx + 400);
+          const nums = window.match(/\d+(?:\.\d+)?/g);
+          if (nums && nums.length >= 2) {
+            if (!best || nums.length > best.nums.length) {
+              best = { name, nums: nums.slice(0, 12).map(Number) };
+            }
+          }
+        }
+        searchStart = idx + name.length;
+      }
+
+      if (best) {
+        seen.add(lower);
+        results.push(best);
+      }
+    }
+
+    return results;
+  }, knownNames);
+}
+
 async function fetchRenderedPage(url) {
   const browser = await puppeteer.launch({
     headless: "new",
@@ -498,72 +537,61 @@ async function fetchRenderedPage(url) {
     ]
   });
 
-  const page = await browser.newPage();
-  await page.setUserAgent(
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-  );
-  await page.setViewport({ width: 1920, height: 1080 });
-
-  const capturedPetArrays = [];
-  const pending = [];
-
-  page.on("response", (response) => {
-    const ct = (response.headers()["content-type"] || "").toLowerCase();
-    if (!ct.includes("json")) return;
-    const p = (async () => {
-      try {
-        const json = await response.json();
-        const before = capturedPetArrays.length;
-        collectPetArrays(json, capturedPetArrays);
-        if (capturedPetArrays.length > before) {
-          console.log(`Captured ${capturedPetArrays.length - before} pet array(s) from ${response.url()}`);
-        }
-      } catch (_) {}
-    })();
-    pending.push(p);
-  });
-
   try {
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
-    await new Promise(r => setTimeout(r, 10000));
-    await Promise.allSettled(pending);
+    const page = await browser.newPage();
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+      "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    );
+    await page.setViewport({ width: 1920, height: 1080 });
 
-    // Try to grab window state as another fallback
-    let windowState = null;
-    try {
-      windowState = await page.evaluate(() => {
-        const keys = ["__NEXT_DATA__", "__NUXT__", "__INITIAL_STATE__", "__APP_STATE__", "initialPets", "__DATA__"];
-        const result = {};
-        for (const k of keys) {
-          if (window[k] !== undefined) {
-            try { result[k] = JSON.parse(JSON.stringify(window[k])); } catch (_) {}
+    const capturedPetArrays = [];
+    const pending = [];
+
+    page.on("response", (response) => {
+      const ct = (response.headers()["content-type"] || "").toLowerCase();
+      if (!ct.includes("json")) return;
+      const p = (async () => {
+        try {
+          const json = await response.json();
+          const before = capturedPetArrays.length;
+          collectPetArrays(json, capturedPetArrays);
+          if (capturedPetArrays.length > before) {
+            console.log(`Captured ${capturedPetArrays.length - before} pet array(s) from ${response.url()}`);
           }
-        }
-        return result;
-      });
-    } catch (_) {}
+        } catch (_) {}
+      })();
+      pending.push(p);
+    });
 
-    if (windowState) {
-      const before = capturedPetArrays.length;
-      for (const value of Object.values(windowState)) {
-        collectPetArrays(value, capturedPetArrays);
-      }
-      if (capturedPetArrays.length > before) {
-        console.log(`Captured ${capturedPetArrays.length - before} pet array(s) from window state`);
-      }
-    }
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await new Promise(r => setTimeout(r, 12000));
+    await Promise.allSettled(pending);
 
     const html = await page.content();
     console.log("Rendered HTML length:", html.length);
-    console.log("Captured pet arrays from network/window:", capturedPetArrays.length);
+    console.log("Captured pet arrays from network:", capturedPetArrays.length);
     console.log("HTML contains 'Shadow Dragon':", html.includes("Shadow Dragon"));
     console.log("HTML contains '__NEXT_DATA__':", html.includes("__NEXT_DATA__"));
     console.log("HTML contains 'initialPets':", html.includes("initialPets"));
 
-    return { html, capturedPetArrays };
-  } finally {
+    // Diagnostic: dump the text around Shadow Dragon so we can see the format.
+    try {
+      const shadowContext = await page.evaluate(() => {
+        const text = document.body.innerText;
+        const idx = text.toLowerCase().indexOf("shadow dragon");
+        if (idx === -1) return "NOT FOUND in innerText";
+        return text.slice(Math.max(0, idx - 100), idx + 500);
+      });
+      console.log("=== Shadow Dragon text context ===\n" + shadowContext + "\n=== End context ===");
+    } catch (e) {
+      console.log("Diagnostic failed:", e.message);
+    }
+
+    return { browser, page, html, capturedPetArrays };
+  } catch (err) {
     await browser.close();
+    throw err;
   }
 }
 
@@ -700,17 +728,66 @@ async function main() {
 
   const previousOutput = await readPreviousOutput();
 
-  const { html, capturedPetArrays } = await fetchRenderedPage(ELVEBREDD_URL);
-  const itemMap = extractElvebreddItems(html, capturedPetArrays);
-  console.log(`Extracted ${itemMap.size} item(s)`);
+  const { browser, page, html, capturedPetArrays } = await fetchRenderedPage(ELVEBREDD_URL);
+
+  let itemMap;
+  try {
+    // Step 1: try JSON-based extraction (works if Elvebredd ever exposes data as JSON again).
+    itemMap = extractElvebreddItems(html, capturedPetArrays);
+    console.log(`JSON extraction: ${itemMap.size} item(s)`);
+
+    // Step 2: if JSON extraction yielded too few items, use the previous DB as a
+    // dictionary of known pet names and read numbers from the rendered DOM text.
+    if (itemMap.size < MIN_ITEMS) {
+      const knownNames = previousOutput && previousOutput.items
+        ? Object.values(previousOutput.items).map(it => it && it.displayName).filter(n => typeof n === "string" && n.length >= 2)
+        : [];
+
+      if (knownNames.length > 0) {
+        console.log(`DOM fallback: scanning rendered text for ${knownNames.length} known pet names...`);
+        const domItems = await extractItemsFromDOM(page, knownNames);
+        console.log(`DOM fallback: found ${domItems.length} pet name(s) with numeric data`);
+
+        for (const { name, nums } of domItems) {
+          const key = normalizeName(name);
+          if (!key || itemMap.has(key)) continue;
+
+          const item = makeBlankItem(name, {});
+          item.aliases = buildAliases(name, key);
+
+          // Best-effort column mapping: NP, F, R, FR, N, NF, NR, NFR, M, MF, MR, MFR
+          for (let i = 0; i < Math.min(nums.length, VARIANTS.length); i++) {
+            if (nums[i] > 0) {
+              const variant = VARIANTS[i];
+              item[variant] = roundValue(nums[i]);
+              item.valueMeta.source[variant] = "elvebredd:dom-text";
+              item.valueMeta.confidence[variant] = "low";
+              item.valueMeta.originalRaw[variant] = nums[i];
+            }
+          }
+
+          item.valueMeta.notes.push(
+            `Values extracted from rendered DOM text using previous DB pet name list; column order assumed NP,F,R,FR,N,NF,NR,NFR,M,MF,MR,MFR.`
+          );
+
+          itemMap.set(key, item);
+        }
+      } else {
+        console.log("No known pet names available from previous DB, cannot use DOM fallback.");
+      }
+    }
+  } finally {
+    await browser.close();
+  }
 
   const sortedEntries = Array.from(itemMap.entries()).sort(([a], [b]) => a.localeCompare(b));
   const items = Object.fromEntries(sortedEntries);
+  console.log(`Final item count: ${sortedEntries.length}`);
 
   const output = {
     version: 5,
     updatedAt: new Date().toISOString(),
-    source: "elvebredd-initialPets-auto-generated",
+    source: "elvebredd-rendered-dom-extraction",
     sourceUrl: ELVEBREDD_URL,
     itemCount: sortedEntries.length,
     valueScale: "elvebredd-display-values",
@@ -749,10 +826,12 @@ async function main() {
   console.log(`Safely copied regular rvalue into NP for ${normalizedNonPets} confirmed non-pet item(s).`);
 
   const shadow = items["shadow dragon"];
-  console.log("Shadow Dragon check:", JSON.stringify({
-    NP: shadow.NP, F: shadow.F, R: shadow.R, FR: shadow.FR,
-    N: shadow.N, NFR: shadow.NFR, M: shadow.M, MFR: shadow.MFR
-  }));
+  if (shadow) {
+    console.log("Shadow Dragon check:", JSON.stringify({
+      NP: shadow.NP, F: shadow.F, R: shadow.R, FR: shadow.FR,
+      N: shadow.N, NFR: shadow.NFR, M: shadow.M, MFR: shadow.MFR
+    }));
+  }
 
   for (const key of KNOWN_NON_PET_SENTINELS) {
     const item = items[key];
