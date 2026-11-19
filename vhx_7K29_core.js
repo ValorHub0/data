@@ -1,4 +1,5 @@
 const fs = require("fs/promises");
+const puppeteer = require("puppeteer");
 
 const ELVEBREDD_URL = process.env.ELVEBREDD_URL || "https://elvebredd.com/adopt-me-calculator";
 const OUT_FILE = process.env.OUT_FILE || "vhx_7K29_db.json";
@@ -779,22 +780,30 @@ function extractElvebreddItems(html) {
   return map;
 }
 
-async function fetchPage(url) {
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; XyneriaElvebreddUpdater/1.0; +https://github.com/)",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-      "Cache-Control": "no-cache"
-    },
-    redirect: "follow"
+async function fetchRenderedPage(url) {
+  const browser = await puppeteer.launch({
+    headless: "new",                         // modern headless mode
+    args: ["--no-sandbox", "--disable-setuid-sandbox"] // required on GitHub runners
   });
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${url}: HTTP ${response.status} ${response.statusText}`);
-  }
+  const page = await browser.newPage();
 
-  return await response.text();
+  try {
+    await page.goto(url, {
+      waitUntil: "networkidle0", // wait until no network requests for 500 ms
+      timeout: 60000
+    });
+
+    // Wait for the pet list to appear.
+    // You may need to inspect the rendered page to confirm this selector.
+    // Common candidates: '.pet-row', '[data-testid="pet-row"]', '.calculator-item'.
+    await page.waitForSelector(".pet-row", { timeout: 30000 });
+
+    const html = await page.content();
+    return html;
+  } finally {
+    await browser.close();
+  }
 }
 
 function categoryCounts(items) {
@@ -961,12 +970,11 @@ async function writeAtomically(path, text) {
 
 async function main() {
   console.log(`Fetching Elvebredd values from ${ELVEBREDD_URL}`);
-
-
-
   const previousOutput = await readPreviousOutput();
 
-  const html = await fetchPage(ELVEBREDD_URL);
+  const html = await fetchRenderedPage(ELVEBREDD_URL);
+  console.log("Rendered HTML length:", html.length);
+  console.log("Contains 'initialPets':", html.includes("initialPets"));
   const itemMap = extractElvebreddItems(html);
   const sortedEntries = Array.from(itemMap.entries()).sort(([a], [b]) => a.localeCompare(b));
   const items = Object.fromEntries(sortedEntries);
