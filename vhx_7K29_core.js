@@ -10,7 +10,7 @@ const MIN_PREVIOUS_NONZERO_RATIO = Number(process.env.MIN_PREVIOUS_NONZERO_RATIO
 
 const VARIANTS = ["NP", "F", "R", "FR", "N", "NF", "NR", "NFR", "M", "MF", "MR", "MFR"];
 
-// ── helpers unchanged ──────────────────────────────────────────────
+// ── helpers ────────────────────────────────────────────────────────
 function normalizeName(value) {
   return String(value || "").toLowerCase().replace(/&amp;/g, "&").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -44,46 +44,94 @@ function makeBlankItem(displayName) {
   };
 }
 
-// ── DOM extraction ────────────────────────────────────────────────
-async function extractFromRenderedPage(browser) {
-  const page = await browser.newPage();
-  await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+// ── in-page extraction ────────────────────────────────────────────
+// Runs inside the browser. Returns [{ name, value }].
+function extractRowsFromPage() {
+  // innerText joins per visual line, so "Name\n123" lines up correctly.
+  // We also handle the case where name and value sit on the SAME line,
+  // separated by whitespace, tabs, or a dash.
+  const text = document.body.innerText || "";
+  const lines = text.split(/\r?\n/);
 
-  await page.goto(ELVEBREDD_URL, { waitUntil: "networkidle2", timeout: 60_000 });
+  // names can include apostrophes, &, letters, digits, spaces, hyphens, dots
+  const nameNumSameLine = /^([A-Za-z][A-Za-z0-9 '&.\-]{1,80}?)\s+[—\-–:\s]*\s*(\d[\d,]*(?:\.\d+)?)\s*$/;
 
-  // Wait until at least one known pet appears in the body text.
-  await page.waitForFunction(
-    () => /Shadow Dragon|Bat Dragon/i.test(document.body.innerText),
-    { timeout: 30_000 }
-  );
+  const results = [];
 
-  // Pull every row that looks like  "Name  123.45"
-  // The page renders each pet as a text line inside a card/row.
-  const rows = await page.evaluate(() => {
-    const results = [];
-    // Walk every element, take its trimmed innerText, and keep lines
-    // that contain a name followed by a positive number.
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    const re = /^([A-Za-z0-9 '&.\-]+?)\s+(\d[\d,]*(?:\.\d+)?)$/;
-    while (walker.nextNode()) {
-      const txt = walker.currentNode.nodeValue.trim();
-      const m = txt.match(re);
-      if (m) {
-        const name = m[1].trim();
-        const value = Number(m[2].replace(/,/g, ""));
-        if (name.length >= 2 && value > 0) results.push({ name, value });
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i].trim();
+    if (!raw) continue;
+
+    // Pattern A: name and number on the same line
+    let m = raw.match(nameNumSameLine);
+    if (m) {
+      const name = m[1].trim();
+      const value = Number(m[2].replace(/,/g, ""));
+      if (name.length >= 2 && value > 0) results.push({ name, value });
+      continue;
+    }
+
+    // Pattern B: name on this line, pure-number on the next line
+    const next = (lines[i + 1] || "").trim();
+    if (
+      /^[A-Za-z][A-Za-z0-9 '&.\-]{1,80}$/.test(raw) &&
+      /^\d[\d,]*(?:\.\d+)?$/.test(next)
+    ) {
+      const name = raw;
+      const value = Number(next.replace(/,/g, ""));
+      if (name.length >= 2 && value > 0) {
+        results.push({ name, value });
+        i += 1; // consumed the value line
       }
     }
-    // De‑duplicate by normalized name, keeping the first (topmost) value.
-    const seen = new Set();
-    return results.filter(r => {
-      const k = r.name.toLowerCase().replace(/\s+/g, " ");
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
-  });
+  }
 
+  // Deduplicate by normalized name, keeping the first (top-of-page) hit
+  const seen = new Set();
+  return results.filter(r => {
+    const k = r.name.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+    if (!k || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+async function extractFromRenderedPage(browser) {
+  const page = await browser.newPage();
+  await page.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+  );
+  await page.setViewport({ width: 1400, height: 2000 });
+
+  await page.goto(ELVEBREDD_URL, { waitUntil: "networkidle2", timeout: 90_000 });
+
+  // Anchor wait — either a well-known pet name or a big body text.
+  try {
+    await page.waitForFunction(
+      () => /Shadow Dragon|Bat Dragon|Frost Dragon/i.test(document.body.innerText),
+      { timeout: 45_000 }
+    );
+  } catch (_) {
+    // fallback: wait for body to be non-trivial, then a settle delay
+    await page.waitForFunction(
+      () => (document.body && document.body.innerText || "").length > 2000,
+      { timeout: 45_000 }
+    );
+  }
+
+  // Scroll to the bottom in steps to trigger any lazy loading / virtualization.
+  await page.evaluate(async () => {
+    const step = Math.max(400, window.innerHeight * 0.8);
+    for (let y = 0; y < document.body.scrollHeight; y += step) {
+      window.scrollTo(0, y);
+      await new Promise(r => setTimeout(r, 200));
+    }
+    window.scrollTo(0, document.body.scrollHeight);
+  });
+  await new Promise(r => setTimeout(r, 1500));
+
+  const rows = await page.evaluate(extractRowsFromPage);
   await page.close();
   return rows;
 }
@@ -95,11 +143,9 @@ function buildItemsFromRows(rows) {
     const displayName = cleanName(name);
     const key = normalizeName(displayName);
     if (!key) continue;
-    if (!map.has(key)) {
-      map.set(key, makeBlankItem(displayName));
-    }
+    if (!map.has(key)) map.set(key, makeBlankItem(displayName));
     const item = map.get(key);
-    // The main list shows the default / FR value. Put it in FR and NP.
+    // The default list view shows the regular (FR-ish) value.
     if (item.FR <= 0) {
       item.FR = roundValue(value);
       item.NP = roundValue(value);
@@ -112,7 +158,7 @@ function buildItemsFromRows(rows) {
   return map;
 }
 
-// ── safety / validation (unchanged) ──────────────────────────────
+// ── safety / validation ──────────────────────────────────────────
 function countPositiveVariantCells(items) {
   let count = 0;
   for (const item of Object.values(items || {})) {
@@ -137,7 +183,7 @@ function validateCandidate(output, previousOutput) {
   const keys = Object.keys(items);
 
   if (keys.length < MIN_ITEMS) {
-    throw new Error(`Only extracted ${keys.length} item(s). Expected at least ${MIN_ITEMS}. The DOM layout may have changed — check the waitForFunction selector.`);
+    throw new Error(`Only extracted ${keys.length} item(s). Expected at least ${MIN_ITEMS}. The DOM layout may have changed — check extractRowsFromPage patterns.`);
   }
 
   const shadow = items["shadow dragon"];
@@ -207,8 +253,12 @@ async function main() {
   const previousOutput = await readPreviousOutput();
 
   const browser = await puppeteer.launch({
-    headless: "new",
-    args: ["--no-sandbox", "--disable-setuid-sandbox"]
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage"
+    ]
   });
 
   let rows;
@@ -219,10 +269,22 @@ async function main() {
   }
 
   console.log(`DOM scrape found ${rows.length} raw pet/value rows.`);
+  if (rows.length > 0) {
+    console.log("Sample rows:", JSON.stringify(rows.slice(0, 8)));
+  }
 
   const itemMap = buildItemsFromRows(rows);
   const sortedEntries = Array.from(itemMap.entries()).sort(([a], [b]) => a.localeCompare(b));
   const items = Object.fromEntries(sortedEntries);
+
+  const categoryItemCounts = (() => {
+    const counts = {};
+    for (const item of Object.values(items)) {
+      const key = item.category || "unknown";
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
+  })();
 
   const output = {
     version: 6,
@@ -233,17 +295,9 @@ async function main() {
     valueScale: "elvebredd-display-values",
     variantKeys: {
       NP: "No Potion / Normal / Default no-potion value (DOM default value)",
-      FR: "Regular/default Fly Ride value (DOM default value)",
-      // other variants remain 0 until a detail pass is added
+      FR: "Regular/default Fly Ride value (DOM default value)"
     },
-    categoryItemCounts: (() => {
-      const counts = {};
-      for (const item of Object.values(items)) {
-        const key = item.category || "unknown";
-        counts[key] = (counts[key] || 0) + 1;
-      }
-      return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
-    })(),
+    categoryItemCounts,
     items
   };
 
@@ -253,7 +307,6 @@ async function main() {
   await writeAtomically(OUT_FILE, serialized);
 
   console.log(`Wrote ${OUT_FILE} with ${sortedEntries.length} items.`);
-
   const shadow = items["shadow dragon"];
   console.log("Shadow Dragon check:", JSON.stringify({ NP: shadow.NP, FR: shadow.FR }));
 }
