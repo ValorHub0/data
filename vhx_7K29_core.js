@@ -1,5 +1,8 @@
 const fs = require("fs/promises");
-const puppeteer = require("puppeteer");
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+
+puppeteer.use(StealthPlugin());
 
 const ELVEBREDD_URL = process.env.ELVEBREDD_URL || "https://elvebredd.com/adopt-me-calculator";
 const OUT_FILE = process.env.OUT_FILE || "vhx_7K29_db.json";
@@ -296,8 +299,6 @@ function hasPetSpecificValueEvidence(raw) {
 function strongNonPetNameReason(displayName) {
   const name = normalizeName(displayName);
 
-
-
   if (name === "egg" || name.endsWith(" egg")) return "name is an egg item";
   if (/(^| )potion( |$)/.test(name)) return "name contains standalone 'potion'";
 
@@ -310,8 +311,6 @@ function classifyElvebreddItem(raw, displayName) {
   const explicitNonPetTag = tags.find(tag => EXPLICIT_NON_PET_TAGS.has(tag)) || null;
   const petSpecificValueEvidence = hasPetSpecificValueEvidence(raw);
   const nameNonPetReason = strongNonPetNameReason(displayName);
-
-
 
   if (nameNonPetReason) {
     if (petSpecificValueEvidence) {
@@ -422,12 +421,6 @@ function convertElvebreddItem(raw) {
       "ride value"
     ],
 
-
-
-
-
-
-
     FR: [
       "rvalue - fly ride",
       "rvalue - fr",
@@ -441,9 +434,6 @@ function convertElvebreddItem(raw) {
       "value",
       "rvalue"
     ],
-
-
-
 
     N: [
       "nvalue - nopotion",
@@ -468,11 +458,6 @@ function convertElvebreddItem(raw) {
       "neon ride",
       "neonRideValue"
     ],
-    // FIX: no idea what i did here
-
-
-
-
 
     NFR: [
       "nvalue - fly ride",
@@ -484,7 +469,6 @@ function convertElvebreddItem(raw) {
       "nfrvalue",
       "nvalue"
     ],
-
 
     M: [
       "mvalue - nopotion",
@@ -780,11 +764,6 @@ function extractElvebreddItems(html) {
   return map;
 }
 
-const puppeteer = require("puppeteer-extra");
-const StealthPlugin = require("puppeteer-extra-plugin-stealth");
-
-puppeteer.use(StealthPlugin());
-
 async function fetchRenderedPage(url) {
   const browser = await puppeteer.launch({
     headless: "new",
@@ -798,7 +777,6 @@ async function fetchRenderedPage(url) {
 
   const page = await browser.newPage();
 
-  // Pretend to be a normal desktop Chrome
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -811,21 +789,23 @@ async function fetchRenderedPage(url) {
       timeout: 90000
     });
 
-    // Wait for the network to go quiet – the bot‑challenge must be solved
-    // before the real content is injected.
-    await page.waitForNetworkIdle({
-      idleTime: 2000,
-      timeout: 60000
-    });
+    try {
+      await page.waitForNetworkIdle({ idleTime: 2000, timeout: 30000 });
+    } catch (_) {
+      // network may still be busy from polling; continue anyway
+    }
 
-    // Optional: verify that a known pet appears
     await page.waitForFunction(
       () => document.body.innerText.includes("Shadow Dragon"),
       { timeout: 60000 }
     );
 
-    const html = await page.content();
-    return html;
+    console.log(
+      "Rendered text preview:",
+      (await page.evaluate(() => document.body.innerText)).slice(0, 500)
+    );
+
+    return await page.content();
   } finally {
     await browser.close();
   }
@@ -995,11 +975,10 @@ async function writeAtomically(path, text) {
 
 async function main() {
   console.log(`Fetching Elvebredd values from ${ELVEBREDD_URL}`);
+
   const previousOutput = await readPreviousOutput();
 
   const html = await fetchRenderedPage(ELVEBREDD_URL);
-  console.log("Rendered HTML length:", html.length);
-  console.log("Contains 'initialPets':", html.includes("initialPets"));
   const itemMap = extractElvebreddItems(html);
   const sortedEntries = Array.from(itemMap.entries()).sort(([a], [b]) => a.localeCompare(b));
   const items = Object.fromEntries(sortedEntries);
