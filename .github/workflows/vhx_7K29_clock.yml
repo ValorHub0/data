@@ -1,4 +1,3 @@
-
 name: VHX 7K29 Database Refresh
 
 on:
@@ -26,11 +25,11 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Validate updater syntax
-        run: node --check vhx_7K29_core.js
-
       - name: Install dependencies
         run: npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth
+
+      - name: Validate updater syntax
+        run: node --check vhx_7K29_core.js
 
       - name: Update values from Elvebredd
         run: node vhx_7K29_core.js
