@@ -47,54 +47,130 @@ function makeBlankItem(displayName) {
   };
 }
 
-// ── in-page extraction ────────────────────────────────────────────
-function extractRowsFromPage() {
-  const text = document.body.innerText || "";
-  const lines = text.split(/\r?\n/);
+// ── sniff candidate pet arrays out of any JSON payload ────────────
+function itemNameFromElvebredd(raw) {
+  return cleanName(
+    raw.name || raw.displayName || raw.display_name ||
+    raw.petName || raw.itemName || raw.title || raw.label || raw.d || ""
+  );
+}
 
-  const nameNumSameLine = /^([A-Za-z][A-Za-z0-9 '&.\-]{1,80}?)\s+[—\-–:\s]*\s*(\d[\d,]*(?:\.\d+)?)\s*$/;
+const PET_SPECIFIC_VALUE_KEYS = [
+  "rvalue - nopotion", "rvalue-nopotion", "rvalue_nopotion", "rvalue no potion", "rvalue nopotion",
+  "npvalue", "no potion", "nopotion", "noPotionValue",
+  "rvalue - fly", "rvalue-fly", "rvalue_fly", "rvalue fly", "flyvalue", "fly value",
+  "rvalue - ride", "rvalue-ride", "rvalue_ride", "rvalue ride", "ridevalue", "ride value",
+  "rvalue - fly ride", "rvalue - fr", "rvalue-fr", "rvalue_fr", "regular value",
+  "regularValue", "frvalue", "fly ride", "flyride", "value", "rvalue",
+  "nvalue", "neon value", "neonValue",
+  "nvalue - nopotion", "nvalue-nopotion", "nvalue_nopotion", "nvalue no potion", "nvalue nopotion",
+  "nvalue - fly", "nvalue-fly", "nvalue_fly", "nvalue - ride", "nvalue-ride", "nvalue_ride",
+  "nvalue - fly ride", "nvalue - fr", "nvalue-fr", "nvalue_fr", "nfrvalue",
+  "mvalue", "mega value", "megaValue",
+  "mvalue - nopotion", "mvalue-nopotion", "mvalue_nopotion", "mvalue no potion", "mvalue nopotion",
+  "mvalue - fly", "mvalue-fly", "mvalue_fly", "mvalue - ride", "mvalue-ride", "mvalue_ride",
+  "mvalue - fly ride", "mvalue - fr", "mvalue-fr", "mvalue_fr", "mfrvalue"
+];
 
-  const results = [];
+function getCaseInsensitive(obj, keys) {
+  if (!obj || typeof obj !== "object") return undefined;
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) return obj[key];
+  }
+  const normalizedWanted = keys.map(k => normalizeName(k));
+  for (const [key, value] of Object.entries(obj)) {
+    if (normalizedWanted.includes(normalizeName(key))) return value;
+  }
+  return undefined;
+}
 
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i].trim();
-    if (!raw) continue;
+function firstPositiveNumber(obj, keys) {
+  for (const key of keys) {
+    const value = getCaseInsensitive(obj, [key]);
+    const n = toNumber(value);
+    if (n > 0) return n;
+  }
+  return 0;
+}
 
-    let m = raw.match(nameNumSameLine);
-    if (m) {
-      const name = m[1].trim();
-      const value = Number(m[2].replace(/,/g, ""));
-      if (name.length >= 2 && value > 0) results.push({ name, value });
-      continue;
+function hasValueFields(raw) {
+  return firstPositiveNumber(raw, PET_SPECIFIC_VALUE_KEYS) > 0;
+}
+
+function looksLikePetRecord(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const name = itemNameFromElvebredd(raw);
+  if (!name || name.length < 2) return false;
+  return hasValueFields(raw);
+}
+
+function findPetArraysInJson(value, depth, found) {
+  if (depth > 8 || !value) return;
+  if (Array.isArray(value)) {
+    if (value.length > 0 && value.every(looksLikePetRecord)) {
+      found.push(value);
+      return;
     }
+    for (const child of value) findPetArraysInJson(child, depth + 1, found);
+    return;
+  }
+  if (typeof value === "object") {
+    for (const child of Object.values(value)) findPetArraysInJson(child, depth + 1, found);
+  }
+}
 
-    const next = (lines[i + 1] || "").trim();
-    if (
-      /^[A-Za-z][A-Za-z0-9 '&.\-]{1,80}$/.test(raw) &&
-      /^\d[\d,]*(?:\.\d+)?$/.test(next)
-    ) {
-      const name = raw;
-      const value = Number(next.replace(/,/g, ""));
-      if (name.length >= 2 && value > 0) {
-        results.push({ name, value });
-        i += 1;
-      }
+function tryJsonParse(text) {
+  try { return JSON.parse(text); } catch (_) { return null; }
+}
+
+function convertElvebreddItem(raw) {
+  if (!looksLikePetRecord(raw)) return null;
+  const displayName = itemNameFromElvebredd(raw);
+  const key = normalizeName(displayName);
+  if (!key) return null;
+
+  const item = makeBlankItem(displayName);
+  item.valueMeta.elvebreddId = raw.id ?? raw.petId ?? raw.itemId ?? null;
+
+  const mapping = {
+    NP: ["rvalue - nopotion","rvalue-nopotion","rvalue_nopotion","rvalue no potion","rvalue nopotion","npvalue","no potion","nopotion","noPotionValue"],
+    F:  ["rvalue - fly","rvalue-fly","rvalue_fly","rvalue fly","flyvalue","fly value"],
+    R:  ["rvalue - ride","rvalue-ride","rvalue_ride","rvalue ride","ridevalue","ride value"],
+    FR: ["rvalue - fly ride","rvalue - fr","rvalue-fr","rvalue_fr","regular value","regularValue","frvalue","fly ride","flyride","value","rvalue"],
+    N:  ["nvalue - nopotion","nvalue-nopotion","nvalue_nopotion","nvalue no potion","nvalue nopotion","neon no potion","neonNoPotionValue"],
+    NF: ["nvalue - fly","nvalue-fly","nvalue_fly","neon fly","neonFlyValue"],
+    NR: ["nvalue - ride","nvalue-ride","nvalue_ride","neon ride","neonRideValue"],
+    NFR:["nvalue - fly ride","nvalue - fr","nvalue-fr","nvalue_fr","neon fly ride","neonFlyRideValue","nfrvalue","nvalue"],
+    M:  ["mvalue - nopotion","mvalue-nopotion","mvalue_nopotion","mvalue no potion","mvalue nopotion","mega no potion","megaNoPotionValue"],
+    MF: ["mvalue - fly","mvalue-fly","mvalue_fly","mega fly","megaFlyValue"],
+    MR: ["mvalue - ride","mvalue-ride","mvalue_ride","mega ride","megaRideValue"],
+    MFR:["mvalue","mvalue - fly ride","mvalue - fr","mvalue-fr","mvalue_fr","mega fly ride","megaFlyRideValue","mfrvalue"]
+  };
+
+  for (const [variant, keys] of Object.entries(mapping)) {
+    const value = firstPositiveNumber(raw, keys);
+    if (value > 0) {
+      item[variant] = roundValue(value);
+      item.valueMeta.source[variant] = `elvebredd:${keys[0]}`;
+      item.valueMeta.confidence[variant] = "direct";
     }
   }
 
-  const seen = new Set();
-  return results.filter(r => {
-    const k = r.name.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
-    if (!k || seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
+  // If the item has an FR but no NP (which Elvebredd often omits), mirror it.
+  // (You can restore the strict "only non-pets" logic later if you want.)
+  if ((item.NP || 0) <= 0 && (item.FR || 0) > 0) {
+    item.NP = item.FR;
+    item.valueMeta.source.NP = "elvebredd:fr-mirror";
+    item.valueMeta.confidence.NP = "mirrored";
+  }
+
+  return { key, item };
 }
 
+// ── steal pet data from all captured responses ────────────────────
 async function extractFromRenderedPage(browser) {
   const page = await browser.newPage();
 
-  // Stealth plugin already patches most fingerprints; these flags finish the job.
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -102,65 +178,100 @@ async function extractFromRenderedPage(browser) {
   await page.setViewport({ width: 1400, height: 2000 });
   await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
 
-  // domcontentloaded returns quickly; we don't need the ads to finish.
-  await page.goto(ELVEBREDD_URL, {
-    waitUntil: "domcontentloaded",
-    timeout: 120_000
+  const captured = [];
+
+  page.on("response", async (response) => {
+    try {
+      const url = response.url();
+      const ct = (response.headers()["content-type"] || "").toLowerCase();
+      if (!/json|javascript|text/.test(ct) && !/\.json(\?|$)|api|\/_next\/data/i.test(url)) return;
+
+      const text = await response.text();
+      if (!text || text.length < 200) return;
+      if (!/shadow dragon|bat dragon|frost dragon/i.test(text)) return;
+
+      const parsed = tryJsonParse(text);
+      if (parsed) captured.push({ url, parsed });
+    } catch (_) {}
   });
 
-  // Poll for the pet text. Cloudflare may take a few seconds to release.
-  try {
-    await page.waitForFunction(
-      () => /Shadow Dragon|Bat Dragon|Frost Dragon/i.test(document.body.innerText),
-      { timeout: 120_000, polling: 1000 }
-    );
-  } catch (err) {
-    // Dump what the browser actually sees, then fail loudly.
-    const html = await page.content();
-    await fs.writeFile("debug_page.html", html, "utf8");
-    const text = await page.evaluate(() => document.body.innerText.slice(0, 500));
-    console.error("Page text sample:", text);
-    throw new Error(`Timed out waiting for pet text. Debug HTML written to debug_page.html. ${err.message}`);
-  }
+  await page.goto(ELVEBREDD_URL, { waitUntil: "domcontentloaded", timeout: 120_000 });
 
-  // Scroll in steps to trigger any lazy-loaded rows.
-  await page.evaluate(async () => {
-    const step = Math.max(400, window.innerHeight * 0.8);
-    for (let y = 0; y < document.body.scrollHeight; y += step) {
-      window.scrollTo(0, y);
-      await new Promise(r => setTimeout(r, 200));
-    }
-    window.scrollTo(0, document.body.scrollHeight);
+  // Give the page time to fire its data fetches.
+  await new Promise(r => setTimeout(r, 8000));
+
+  // Also dig into in-page hydration state.
+  const pageState = await page.evaluate(() => {
+    const state = {};
+    try {
+      const nd = document.querySelector("#__NEXT_DATA__");
+      if (nd && nd.textContent) state.nextData = nd.textContent;
+    } catch (_) {}
+    try {
+      if (window.__NEXT_DATA__) state.nextData = JSON.stringify(window.__NEXT_DATA__);
+    } catch (_) {}
+    try {
+      if (window.__INITIAL_STATE__) state.initialState = JSON.stringify(window.__INITIAL_STATE__);
+    } catch (_) {}
+    return state;
   });
-  await new Promise(r => setTimeout(r, 1500));
 
-  const rows = await page.evaluate(extractRowsFromPage);
   await page.close();
-  return rows;
-}
 
-// ── build the item map ────────────────────────────────────────────
-function buildItemsFromRows(rows) {
+  const arrays = [];
+  for (const { parsed } of captured) {
+    const found = [];
+    findPetArraysInJson(parsed, 0, found);
+    arrays.push(...found);
+  }
+
+  for (const [k, raw] of Object.entries(pageState)) {
+    if (!raw) continue;
+    const parsed = tryJsonParse(raw);
+    if (!parsed) continue;
+    const found = [];
+    findPetArraysInJson(parsed, 0, found);
+    arrays.push(...found);
+  }
+
+  console.log(`Captured ${captured.length} JSON response(s); ${arrays.length} pet-array candidate(s).`);
+  if (captured.length > 0) {
+    console.log("Response URLs:", captured.map(c => c.url).slice(0, 20));
+  }
+
+  // Merge every pet array into one map.
   const map = new Map();
-  for (const { name, value } of rows) {
-    const displayName = cleanName(name);
-    const key = normalizeName(displayName);
-    if (!key) continue;
-    if (!map.has(key)) map.set(key, makeBlankItem(displayName));
-    const item = map.get(key);
-    if (item.FR <= 0) {
-      item.FR = roundValue(value);
-      item.NP = roundValue(value);
-      item.valueMeta.source.FR = "elvebredd:dom";
-      item.valueMeta.source.NP = "elvebredd:dom";
-      item.valueMeta.confidence.FR = "direct";
-      item.valueMeta.confidence.NP = "direct";
+  for (const arr of arrays) {
+    for (const raw of arr) {
+      const converted = convertElvebreddItem(raw);
+      if (!converted) continue;
+      const existing = map.get(converted.key);
+      if (!existing) {
+        map.set(converted.key, converted.item);
+      } else {
+        for (const v of VARIANTS) {
+          if ((existing[v] || 0) <= 0 && (converted.item[v] || 0) > 0) {
+            existing[v] = converted.item[v];
+            existing.valueMeta.source[v] = converted.item.valueMeta.source[v];
+            existing.valueMeta.confidence[v] = converted.item.valueMeta.confidence[v];
+          }
+        }
+      }
     }
   }
+
+  if (map.size === 0) {
+    // Debug dump so the next failure is diagnosable.
+    await fs.writeFile("debug_page.html", await (await browser.newPage()).content?.() || "", "utf8").catch(() => {});
+    const sampleUrls = captured.map(c => c.url).slice(0, 30);
+    await fs.writeFile("debug_urls.txt", sampleUrls.join("\n"), "utf8").catch(() => {});
+    throw new Error(`No pet arrays found. Captured ${captured.length} JSON responses. See debug_urls.txt / debug_page.html.`);
+  }
+
   return map;
 }
 
-// ── safety / validation ──────────────────────────────────────────
+// ── build output ─────────────────────────────────────────────────
 function countPositiveVariantCells(items) {
   let count = 0;
   for (const item of Object.values(items || {})) {
@@ -185,7 +296,7 @@ function validateCandidate(output, previousOutput) {
   const keys = Object.keys(items);
 
   if (keys.length < MIN_ITEMS) {
-    throw new Error(`Only extracted ${keys.length} item(s). Expected at least ${MIN_ITEMS}. The DOM layout may have changed — check debug_page.html.`);
+    throw new Error(`Only extracted ${keys.length} item(s). Expected at least ${MIN_ITEMS}. See debug_urls.txt for which endpoints responded.`);
   }
 
   const shadow = items["shadow dragon"];
@@ -241,15 +352,10 @@ async function readPreviousOutput() {
 async function writeAtomically(path, text) {
   const tempPath = `${path}.tmp`;
   await fs.writeFile(tempPath, text, "utf8");
-  try {
-    await fs.rename(tempPath, path);
-  } catch (error) {
-    try { await fs.unlink(tempPath); } catch (_) {}
-    throw error;
-  }
+  try { await fs.rename(tempPath, path); }
+  catch (error) { try { await fs.unlink(tempPath); } catch (_) {} throw error; }
 }
 
-// ── main ──────────────────────────────────────────────────────────
 async function main() {
   console.log(`Rendering Elvebredd values from ${ELVEBREDD_URL}`);
   const previousOutput = await readPreviousOutput();
@@ -264,19 +370,13 @@ async function main() {
     ]
   });
 
-  let rows;
+  let itemMap;
   try {
-    rows = await extractFromRenderedPage(browser);
+    itemMap = await extractFromRenderedPage(browser);
   } finally {
     await browser.close();
   }
 
-  console.log(`DOM scrape found ${rows.length} raw pet/value rows.`);
-  if (rows.length > 0) {
-    console.log("Sample rows:", JSON.stringify(rows.slice(0, 8)));
-  }
-
-  const itemMap = buildItemsFromRows(rows);
   const sortedEntries = Array.from(itemMap.entries()).sort(([a], [b]) => a.localeCompare(b));
   const items = Object.fromEntries(sortedEntries);
 
@@ -292,13 +392,14 @@ async function main() {
   const output = {
     version: 6,
     updatedAt: new Date().toISOString(),
-    source: "elvebredd-dom-scrape",
+    source: "elvebredd-api-scrape",
     sourceUrl: ELVEBREDD_URL,
     itemCount: sortedEntries.length,
     valueScale: "elvebredd-display-values",
     variantKeys: {
-      NP: "No Potion / Normal / Default no-potion value (DOM default value)",
-      FR: "Regular/default Fly Ride value (DOM default value)"
+      NP: "No Potion / Normal / Default no-potion value",
+      FR: "Regular/default Fly Ride value",
+      // others filled when Elvebredd exposes them
     },
     categoryItemCounts,
     items
@@ -311,7 +412,7 @@ async function main() {
 
   console.log(`Wrote ${OUT_FILE} with ${sortedEntries.length} items.`);
   const shadow = items["shadow dragon"];
-  console.log("Shadow Dragon check:", JSON.stringify({ NP: shadow.NP, FR: shadow.FR }));
+  if (shadow) console.log("Shadow Dragon check:", JSON.stringify({ NP: shadow.NP, FR: shadow.FR }));
 }
 
 main().catch(error => {
