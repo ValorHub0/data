@@ -1,5 +1,8 @@
 const fs = require("fs/promises");
-const puppeteer = require("puppeteer");
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+
+puppeteer.use(StealthPlugin());
 
 const ELVEBREDD_URL = process.env.ELVEBREDD_URL || "https://elvebredd.com/adopt-me-calculator";
 const OUT_FILE = process.env.OUT_FILE || "vhx_7K29_db.json";
@@ -44,10 +47,8 @@ function makeBlankItem(displayName) {
   };
 }
 
-// ── in-page extraction (runs inside the browser) ──────────────────
+// ── in-page extraction ────────────────────────────────────────────
 function extractRowsFromPage() {
-  // innerText joins per visual line, so "Name" and "123" become "Name\n123"
-  // even when they live in separate DOM spans. Handles both layouts.
   const text = document.body.innerText || "";
   const lines = text.split(/\r?\n/);
 
@@ -59,7 +60,6 @@ function extractRowsFromPage() {
     const raw = lines[i].trim();
     if (!raw) continue;
 
-    // Pattern A: name and number on the same line
     let m = raw.match(nameNumSameLine);
     if (m) {
       const name = m[1].trim();
@@ -68,7 +68,6 @@ function extractRowsFromPage() {
       continue;
     }
 
-    // Pattern B: name on this line, pure-number on the next
     const next = (lines[i + 1] || "").trim();
     if (
       /^[A-Za-z][A-Za-z0-9 '&.\-]{1,80}$/.test(raw) &&
@@ -83,7 +82,6 @@ function extractRowsFromPage() {
     }
   }
 
-  // Deduplicate by normalized name, keep first (top-of-page) hit
   const seen = new Set();
   return results.filter(r => {
     const k = r.name.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
@@ -95,28 +93,37 @@ function extractRowsFromPage() {
 
 async function extractFromRenderedPage(browser) {
   const page = await browser.newPage();
+
+  // Stealth plugin already patches most fingerprints; these flags finish the job.
   await page.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
   );
   await page.setViewport({ width: 1400, height: 2000 });
+  await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
 
-  await page.goto(ELVEBREDD_URL, { waitUntil: "networkidle2", timeout: 90_000 });
+  // domcontentloaded returns quickly; we don't need the ads to finish.
+  await page.goto(ELVEBREDD_URL, {
+    waitUntil: "domcontentloaded",
+    timeout: 120_000
+  });
 
-  // Anchor wait — a known pet name, or a body that has clearly rendered.
+  // Poll for the pet text. Cloudflare may take a few seconds to release.
   try {
     await page.waitForFunction(
       () => /Shadow Dragon|Bat Dragon|Frost Dragon/i.test(document.body.innerText),
-      { timeout: 45_000 }
+      { timeout: 120_000, polling: 1000 }
     );
-  } catch (_) {
-    await page.waitForFunction(
-      () => ((document.body && document.body.innerText) || "").length > 2000,
-      { timeout: 45_000 }
-    );
+  } catch (err) {
+    // Dump what the browser actually sees, then fail loudly.
+    const html = await page.content();
+    await fs.writeFile("debug_page.html", html, "utf8");
+    const text = await page.evaluate(() => document.body.innerText.slice(0, 500));
+    console.error("Page text sample:", text);
+    throw new Error(`Timed out waiting for pet text. Debug HTML written to debug_page.html. ${err.message}`);
   }
 
-  // Scroll in steps to trigger any lazy loading / virtualization.
+  // Scroll in steps to trigger any lazy-loaded rows.
   await page.evaluate(async () => {
     const step = Math.max(400, window.innerHeight * 0.8);
     for (let y = 0; y < document.body.scrollHeight; y += step) {
@@ -141,7 +148,6 @@ function buildItemsFromRows(rows) {
     if (!key) continue;
     if (!map.has(key)) map.set(key, makeBlankItem(displayName));
     const item = map.get(key);
-    // The default list view shows the regular (FR-ish) value.
     if (item.FR <= 0) {
       item.FR = roundValue(value);
       item.NP = roundValue(value);
@@ -179,7 +185,7 @@ function validateCandidate(output, previousOutput) {
   const keys = Object.keys(items);
 
   if (keys.length < MIN_ITEMS) {
-    throw new Error(`Only extracted ${keys.length} item(s). Expected at least ${MIN_ITEMS}. The DOM layout may have changed — check extractRowsFromPage patterns.`);
+    throw new Error(`Only extracted ${keys.length} item(s). Expected at least ${MIN_ITEMS}. The DOM layout may have changed — check debug_page.html.`);
   }
 
   const shadow = items["shadow dragon"];
@@ -253,7 +259,8 @@ async function main() {
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage"
+      "--disable-dev-shm-usage",
+      "--disable-blink-features=AutomationControlled"
     ]
   });
 
