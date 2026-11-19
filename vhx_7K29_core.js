@@ -44,16 +44,13 @@ function makeBlankItem(displayName) {
   };
 }
 
-// ── in-page extraction ────────────────────────────────────────────
-// Runs inside the browser. Returns [{ name, value }].
+// ── in-page extraction (runs inside the browser) ──────────────────
 function extractRowsFromPage() {
-  // innerText joins per visual line, so "Name\n123" lines up correctly.
-  // We also handle the case where name and value sit on the SAME line,
-  // separated by whitespace, tabs, or a dash.
+  // innerText joins per visual line, so "Name" and "123" become "Name\n123"
+  // even when they live in separate DOM spans. Handles both layouts.
   const text = document.body.innerText || "";
   const lines = text.split(/\r?\n/);
 
-  // names can include apostrophes, &, letters, digits, spaces, hyphens, dots
   const nameNumSameLine = /^([A-Za-z][A-Za-z0-9 '&.\-]{1,80}?)\s+[—\-–:\s]*\s*(\d[\d,]*(?:\.\d+)?)\s*$/;
 
   const results = [];
@@ -71,7 +68,7 @@ function extractRowsFromPage() {
       continue;
     }
 
-    // Pattern B: name on this line, pure-number on the next line
+    // Pattern B: name on this line, pure-number on the next
     const next = (lines[i + 1] || "").trim();
     if (
       /^[A-Za-z][A-Za-z0-9 '&.\-]{1,80}$/.test(raw) &&
@@ -81,12 +78,12 @@ function extractRowsFromPage() {
       const value = Number(next.replace(/,/g, ""));
       if (name.length >= 2 && value > 0) {
         results.push({ name, value });
-        i += 1; // consumed the value line
+        i += 1;
       }
     }
   }
 
-  // Deduplicate by normalized name, keeping the first (top-of-page) hit
+  // Deduplicate by normalized name, keep first (top-of-page) hit
   const seen = new Set();
   return results.filter(r => {
     const k = r.name.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
@@ -106,21 +103,20 @@ async function extractFromRenderedPage(browser) {
 
   await page.goto(ELVEBREDD_URL, { waitUntil: "networkidle2", timeout: 90_000 });
 
-  // Anchor wait — either a well-known pet name or a big body text.
+  // Anchor wait — a known pet name, or a body that has clearly rendered.
   try {
     await page.waitForFunction(
       () => /Shadow Dragon|Bat Dragon|Frost Dragon/i.test(document.body.innerText),
       { timeout: 45_000 }
     );
   } catch (_) {
-    // fallback: wait for body to be non-trivial, then a settle delay
     await page.waitForFunction(
-      () => (document.body && document.body.innerText || "").length > 2000,
+      () => ((document.body && document.body.innerText) || "").length > 2000,
       { timeout: 45_000 }
     );
   }
 
-  // Scroll to the bottom in steps to trigger any lazy loading / virtualization.
+  // Scroll in steps to trigger any lazy loading / virtualization.
   await page.evaluate(async () => {
     const step = Math.max(400, window.innerHeight * 0.8);
     for (let y = 0; y < document.body.scrollHeight; y += step) {
