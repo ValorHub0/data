@@ -782,22 +782,30 @@ function extractElvebreddItems(html) {
 
 async function fetchRenderedPage(url) {
   const browser = await puppeteer.launch({
-    headless: "new",                         // modern headless mode
-    args: ["--no-sandbox", "--disable-setuid-sandbox"] // required on GitHub runners
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
   });
 
   const page = await browser.newPage();
 
   try {
     await page.goto(url, {
-      waitUntil: "networkidle0", // wait until no network requests for 500 ms
+      waitUntil: "networkidle2",   // more lenient than networkidle0
       timeout: 60000
     });
 
-    // Wait for the pet list to appear.
-    // You may need to inspect the rendered page to confirm this selector.
-    // Common candidates: '.pet-row', '[data-testid="pet-row"]', '.calculator-item'.
-    await page.waitForSelector(".pet-row", { timeout: 30000 });
+    // Wait for a known pet name to appear in the DOM.
+    // "Shadow Dragon" is the first row in the calculator.
+    await page.waitForFunction(
+      () => document.body.innerText.includes("Shadow Dragon"),
+      { timeout: 30000 }
+    );
+
+    // DEBUG: print first 500 chars of visible text
+    console.log(
+      "Rendered text preview:",
+      (await page.evaluate(() => document.body.innerText)).slice(0, 500)
+    );
 
     const html = await page.content();
     return html;
