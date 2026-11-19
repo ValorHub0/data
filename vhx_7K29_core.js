@@ -780,31 +780,48 @@ function extractElvebreddItems(html) {
   return map;
 }
 
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+
+puppeteer.use(StealthPlugin());
+
 async function fetchRenderedPage(url) {
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ["--no-sandbox", "--disable-setuid-sandbox"]
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-blink-features=AutomationControlled",
+      "--window-size=1920,1080"
+    ]
   });
 
   const page = await browser.newPage();
 
+  // Pretend to be a normal desktop Chrome
+  await page.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+  );
+  await page.setViewport({ width: 1920, height: 1080 });
+
   try {
     await page.goto(url, {
-      waitUntil: "networkidle2",   // more lenient than networkidle0
+      waitUntil: "networkidle2",
+      timeout: 90000
+    });
+
+    // Wait for the network to go quiet – the bot‑challenge must be solved
+    // before the real content is injected.
+    await page.waitForNetworkIdle({
+      idleTime: 2000,
       timeout: 60000
     });
 
-    // Wait for a known pet name to appear in the DOM.
-    // "Shadow Dragon" is the first row in the calculator.
+    // Optional: verify that a known pet appears
     await page.waitForFunction(
       () => document.body.innerText.includes("Shadow Dragon"),
-      { timeout: 30000 }
-    );
-
-    // DEBUG: print first 500 chars of visible text
-    console.log(
-      "Rendered text preview:",
-      (await page.evaluate(() => document.body.innerText)).slice(0, 500)
+      { timeout: 60000 }
     );
 
     const html = await page.content();
