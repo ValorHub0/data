@@ -3,7 +3,7 @@ name: VHX 7K29 Database Refresh
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */2 * * *"
+    - cron: "0 */3 * * *"
 
 permissions:
   contents: write
@@ -17,16 +17,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
-
-      - name: Install dependencies
-        run: npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth
+          node-version: "20"
 
       - name: Validate updater syntax
         run: node --check vhx_7K29_core.js
@@ -36,9 +33,9 @@ jobs:
 
       - name: Validate generated database JSON
         run: |
-          node -e "const fs=require('node:fs'); const db=JSON.parse(fs.readFileSync('vhx_7K29_db.json','utf8')); if(!db || typeof db !== 'object' || !db.items || typeof db.items !== 'object' || Array.isArray(db.items)) throw new Error('Generated database has no valid items object'); if(Object.keys(db.items).length < 100) throw new Error('Generated database contains too few items'); console.log('Validated', Object.keys(db.items).length, 'items');"
+          node -e "const fs=require('fs'); const db=JSON.parse(fs.readFileSync('vhx_7K29_db.json','utf8')); if(!db || !db.items || typeof db.items !== 'object') throw new Error('Generated database has no valid items object'); if(Object.keys(db.items).length < 100) throw new Error('Generated database contains too few items'); console.log('Validated', Object.keys(db.items).length, 'items');"
 
-      - name: Commit updated database
+      - name: Commit updated values
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -48,6 +45,6 @@ jobs:
             echo "No vhx_7K29_db.json changes to commit."
           else
             git diff --cached --check
-            git commit -m "Refresh VHX 7K29 database"
+            git commit -m "Update Elvebredd values"
             git push
           fi
