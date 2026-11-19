@@ -783,29 +783,48 @@ async function fetchRenderedPage(url) {
   );
   await page.setViewport({ width: 1920, height: 1080 });
 
+  let petData = null;
+
+  // Listen for any response that looks like JSON and contains pet data.
+  page.on("response", async (response) => {
+    const respUrl = response.url();
+    const contentType = response.headers()["content-type"] || "";
+
+    // Look for a JSON response – the pet list is almost certainly served as JSON.
+    if (contentType.includes("application/json")) {
+      try {
+        const json = await response.json();
+        // Check if the JSON contains an array of pets.
+        // Adjust the key ("initialPets", "pets", "items", etc.) if needed.
+        if (json && (json.initialPets || json.pets || json.items)) {
+          petData = json.initialPets || json.pets || json.items;
+          console.log(`Captured pet data from ${respUrl}`);
+        }
+      } catch (_) {
+        // Not JSON or not parseable – ignore.
+      }
+    }
+  });
+
   try {
     await page.goto(url, {
       waitUntil: "networkidle2",
       timeout: 90000
     });
 
-    try {
-      await page.waitForNetworkIdle({ idleTime: 2000, timeout: 30000 });
-    } catch (_) {
-      // network may still be busy from polling; continue anyway
+    // Give the page a moment to fire the data request.
+    await page.waitForNetworkIdle({ idleTime: 2000, timeout: 30000 });
+
+    if (!petData) {
+      throw new Error(
+        "No pet data was intercepted. The API endpoint may have changed. " +
+        "Check the browser's Network tab to see which request returns the pet list."
+      );
     }
 
-    await page.waitForFunction(
-      () => document.body.innerText.includes("Shadow Dragon"),
-      { timeout: 60000 }
-    );
-
-    console.log(
-      "Rendered text preview:",
-      (await page.evaluate(() => document.body.innerText)).slice(0, 500)
-    );
-
-    return await page.content();
+    // Return the raw pet array – your existing extractElvebreddItems will
+    // not be used, but you can adapt main() to consume this array directly.
+    return petData;
   } finally {
     await browser.close();
   }
@@ -978,8 +997,15 @@ async function main() {
 
   const previousOutput = await readPreviousOutput();
 
-  const html = await fetchRenderedPage(ELVEBREDD_URL);
-  const itemMap = extractElvebreddItems(html);
+  const petArray = await fetchRenderedPage(ELVEBREDD_URL);
+
+  const itemMap = new Map();
+  for (const raw of petArray) {
+    const converted = convertElvebreddItem(raw);
+    if (converted) {
+      itemMap.set(converted.key, converted.item);
+    }
+  }
   const sortedEntries = Array.from(itemMap.entries()).sort(([a], [b]) => a.localeCompare(b));
   const items = Object.fromEntries(sortedEntries);
 
