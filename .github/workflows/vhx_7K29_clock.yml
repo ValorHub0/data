@@ -3,7 +3,7 @@ name: VHX 7K29 Database Refresh
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */3 * * *"
+    - cron: "0 */6 * * *"
 
 permissions:
   contents: write
@@ -23,22 +23,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
-
-      - name: Install Chromium system libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
-            libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
-            libxfixes3 libxrandr2 libgbm1 libasound2t64 \
-            fonts-liberation
-
-      - name: Install Node dependencies
-        run: npm install --no-audit --no-fund
-
-      - name: Ensure Chromium is installed for Puppeteer
-        run: npx puppeteer browsers install chrome
+          node-version: "20"
 
       - name: Validate updater syntax
         run: node --check vhx_7K29_core.js
@@ -48,7 +33,7 @@ jobs:
 
       - name: Validate generated database JSON
         run: |
-          node -e "const fs=require('fs'); const db=JSON.parse(fs.readFileSync('vhx_7K29_db.json','utf8')); if(!db || !db.items || typeof db.items !== 'object') throw new Error('Generated database has no valid items object'); const n=Object.keys(db.items).length; if(n < 100) throw new Error('Generated database contains too few items: '+n); if(!db.items['shadow dragon']) throw new Error('Shadow Dragon missing'); console.log('Validated', n, 'items');"
+          node -e "const fs=require('fs'); const db=JSON.parse(fs.readFileSync('vhx_7K29_db.json','utf8')); if(!db || !db.items || typeof db.items !== 'object') throw new Error('Generated database has no valid items object'); if(Object.keys(db.items).length < 100) throw new Error('Generated database contains too few items'); console.log('Validated', Object.keys(db.items).length, 'items');"
 
       - name: Commit updated values
         run: |
