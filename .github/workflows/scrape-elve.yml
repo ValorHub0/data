@@ -1,0 +1,74 @@
+name: Scrape Elvebredd values
+
+on:
+  schedule:
+    - cron: "0 */12 * * *"   # 00:00 and 12:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scrape-elve
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      flaresolverr:
+        image: ghcr.io/flaresolverr/flaresolverr:latest
+        ports:
+          - 8191:8191
+        env:
+          LOG_LEVEL: info
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Wait for FlareSolverr
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8191/health && exit 0
+            sleep 2
+          done
+          echo "FlareSolverr did not start" >&2
+          exit 1
+
+      - name: Scrape values
+        env:
+          FLARESOLVERR_URL: http://localhost:8191/v1
+          OUTPUT_FILE: data/elve-values.json
+        run: node scripts/scrape-elve.js
+
+      # Checkout is pinned to the commit that triggered the run, so put the new
+      # file on top of the latest branch tip before committing. Retry in case
+      # something else pushes in between.
+      - name: Commit the file
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          cp data/elve-values.json "$RUNNER_TEMP/elve-values.json"
+          for i in 1 2 3; do
+            git fetch -q origin "$BRANCH"
+            git reset -q --hard "origin/$BRANCH"
+            mkdir -p data
+            cp "$RUNNER_TEMP/elve-values.json" data/elve-values.json
+            git add data/elve-values.json
+            if git diff --cached --quiet; then
+              echo "No changes"
+              exit 0
+            fi
+            git commit -q -m "Update Elvebredd values"
+            git push origin "HEAD:$BRANCH" && exit 0
+            echo "Push rejected, retrying ($i/3)"
+            sleep 5
+          done
+          exit 1
