@@ -1,6 +1,6 @@
 {
   "source": "https://elvebredd.com/calculator",
-  "scrapedAt": "2026-11-27T07:52:26.536Z",
+  "scrapedAt": "2026-11-27T20:58:54.329Z",
   "count": 3517,
   "pets": [
     {
@@ -56562,7 +56562,7 @@
       "flyRide": true,
       "rvalue": 111,
       "nvalue": 270,
-      "mvalue": 960,
+      "mvalue": 1010,
       "rvalueNopotion": 109,
       "rvalueRide": 109,
       "rvalueFly": 109.85,
@@ -56571,10 +56571,10 @@
       "nvalueRide": 269,
       "nvalueFly": 269,
       "nvalueFlyRide": 270,
-      "mvalueNopotion": 996,
-      "mvalueRide": 958,
-      "mvalueFly": 958.9,
-      "mvalueFlyRide": 960
+      "mvalueNopotion": 1046,
+      "mvalueRide": 1008,
+      "mvalueFly": 1008.9,
+      "mvalueFlyRide": 1010
     },
     {
       "id": 2553,
